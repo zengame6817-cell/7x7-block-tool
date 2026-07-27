@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>7×7 ブロック自動配置</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Yu Gothic",sans-serif;background:#eef2f7;color:#111827}header{background:#111827;color:#fff;padding:18px 16px}header h1{margin:0;font-size:21px}header p{margin:6px 0 0;color:#cbd5e1;font-size:13px}main{max-width:850px;margin:auto;padding:12px}.panel{background:#fff;border-radius:18px;padding:15px;margin-bottom:12px;box-shadow:0 8px 24px rgba(15,23,42,.08)}h2{margin:0 0 8px;font-size:18px}.hint{color:#64748b;font-size:13px;line-height:1.5;margin-bottom:10px}.form{display:grid;grid-template-columns:1fr 90px;gap:8px;margin-bottom:10px}input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:11px;font-size:16px}.editor-wrap,.board-wrap{overflow-x:auto}.editor{display:grid;grid-template-columns:repeat(5,52px);gap:6px;width:max-content;margin:0 auto 12px}.edit-cell{width:52px;height:52px;border:2px solid #94a3b8;border-radius:9px;background:#fff}.edit-cell.active{background:#111827;border-color:#111827}.row{display:flex;flex-wrap:wrap;gap:8px}.action{border:0;border-radius:11px;padding:12px 14px;font-size:15px;font-weight:700}.blue{background:#2563eb;color:#fff}.green{background:#16a34a;color:#fff}.red{background:#dc2626;color:#fff}.gray{background:#e5e7eb;color:#111827}.purple{background:#7c3aed;color:#fff}.options{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:14px}.options label{display:flex;align-items:center;gap:6px}.options input{width:20px;height:20px}.block-list{display:grid;gap:8px}.block-item{border:1px solid #e2e8f0;border-radius:12px;padding:10px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}.block-title{font-weight:700}.block-meta{font-size:12px;color:#64748b;margin-top:3px}.mini{display:grid;gap:2px;width:max-content;margin-top:7px}.mini-cell{width:16px;height:16px;border-radius:3px;background:#e5e7eb}.mini-cell.on{background:#111827}.small{padding:8px 10px;font-size:13px}.status{margin-top:10px;border-radius:11px;padding:11px 12px;background:#eff6ff;color:#1e40af;font-size:14px;font-weight:650}.status.error{background:#fef2f2;color:#991b1b}.status.success{background:#f0fdf4;color:#166534}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;text-align:center}.stat b{display:block;font-size:18px}.stat span{font-size:11px;color:#64748b}.board{display:grid;grid-template-columns:repeat(7,46px);gap:5px;width:max-content;margin:10px auto}.board-cell{width:46px;height:46px;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;color:#fff;font-size:11px;font-weight:800}.legend{display:flex;flex-wrap:wrap;gap:7px 12px;margin-top:9px}.legend-item{display:flex;gap:6px;align-items:center;font-size:12px}.swatch{width:16px;height:16px;border-radius:4px}@media(min-width:760px){main{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}.panel{margin-bottom:0}}
+</style>
+</head>
+<body>
+<header><h1>7×7 ブロック自動配置ツール</h1><p>ブロックの形と個数を登録し、重ならない配置を自動で探します。</p></header>
+<main>
+<section class="panel">
+<h2>① ブロックを作る</h2><div class="hint">5×5のマスをタップして形を作ります。黒い部分がブロックです。</div>
+<div class="form"><input id="name" placeholder="名前（例：L字）"><input id="count" type="number" min="1" max="20" value="1"></div>
+<div class="editor-wrap"><div id="editor" class="editor"></div></div>
+<div class="row"><button class="action gray" id="clearShape">形をクリア</button><button class="action blue" id="add">ブロック登録</button><button class="action purple" id="samples">サンプル</button></div>
+<div class="options"><label><input id="rotate" type="checkbox" checked>回転を許可</label><label><input id="flip" type="checkbox">反転を許可</label></div>
+</section>
+<section class="panel">
+<h2>② 登録済みブロック</h2><div class="hint">個数分だけ配置します。内容は端末内に保存されます。</div><div id="list" class="block-list"></div><div class="row" style="margin-top:10px"><button class="action red" id="clearAll">全部削除</button></div>
+</section>
+<section class="panel full">
+<h2>③ 7×7へ自動配置</h2>
+<div class="row"><button class="action green" id="solve">自動配置</button><button class="action gray" id="again">別の配置</button><button class="action gray" id="clearBoard">配置を消す</button><button class="action blue" id="image">画像にする</button></div>
+<div id="status" class="status">ブロックを登録してください。</div>
+<div class="stats"><div class="stat"><b id="used">0</b><span>使用マス</span></div><div class="stat"><b id="empty">49</b><span>空きマス</span></div><div class="stat"><b id="pieces">0</b><span>ブロック数</span></div></div>
+<div class="board-wrap"><div id="board" class="board"></div></div><div id="legend" class="legend"></div>
+</section>
+</main>
+<canvas id="canvas" width="900" height="1000" hidden></canvas>
+<script>
+(function(){
+const SIZE=7, EDIT=5, COLORS=['#ef4444','#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#a855f7','#eab308','#10b981','#fb7185'];
+let edit=Array(25).fill(false), blocks=[], result=null, seed=0;
+const $=id=>document.getElementById(id);
+function uid(){return 'b'+Date.now()+Math.floor(Math.random()*1e6)}
+function norm(s){if(!s.length)return[];const mr=Math.min(...s.map(x=>x[0])),mc=Math.min(...s.map(x=>x[1]));return s.map(([r,c])=>[r-mr,c-mc]).sort((a,b)=>a[0]-b[0]||a[1]-b[1])}
+function key(s){return s.map(x=>x.join(',')).join('|')}
+function rot(s){return norm(s.map(([r,c])=>[c,-r]))}
+function flp(s){return norm(s.map(([r,c])=>[r,-c]))}
+function vars(s){let out=[],seen=new Set(),cur=norm(s),n=$('rotate').checked?4:1;for(let i=0;i<n;i++){let k=key(cur);if(!seen.has(k)){seen.add(k);out.push(cur)}if($('flip').checked){let f=flp(cur),fk=key(f);if(!seen.has(fk)){seen.add(fk);out.push(f)}}cur=rot(cur)}return out}
+function setStatus(t,type=''){let s=$('status');s.textContent=t;s.className='status'+(type?' '+type:'')}
+function save(){try{localStorage.setItem('block7x7_v2',JSON.stringify(blocks))}catch(e){}}
+function load(){try{let v=JSON.parse(localStorage.getItem('block7x7_v2')||'[]');if(Array.isArray(v))blocks=v}catch(e){}}
+function renderEditor(){[...$('editor').children].forEach((c,i)=>c.classList.toggle('active',edit[i]))}
+function clearShape(){edit.fill(false);renderEditor()}
+function currentShape(){let s=[];edit.forEach((on,i)=>{if(on)s.push([Math.floor(i/EDIT),i%EDIT])});return norm(s)}
+function renderList(){let box=$('list');if(!blocks.length){box.innerHTML='<div class="hint">まだ登録されていません。</div>';return}box.innerHTML='';blocks.forEach((b,i)=>{let d=document.createElement('div');d.className='block-item';let maxR=Math.max(...b.shape.map(x=>x[0])),maxC=Math.max(...b.shape.map(x=>x[1]));let mini='<div class="mini" style="grid-template-columns:repeat('+(maxC+1)+',16px)">';for(let r=0;r<=maxR;r++)for(let c=0;c<=maxC;c++)mini+='<span class="mini-cell'+(b.shape.some(x=>x[0]===r&&x[1]===c)?' on':'')+'"></span>';mini+='</div>';d.innerHTML='<div><div class="block-title">'+(i+1)+'. '+b.name+'</div><div class="block-meta">'+b.shape.length+'マス × '+b.count+'個</div>'+mini+'</div><div><button class="action gray small countBtn">個数</button><br><button class="action red small delBtn" style="margin-top:6px">削除</button></div>';d.querySelector('.delBtn').onclick=()=>{blocks=blocks.filter(x=>x.id!==b.id);result=null;save();renderAll()};d.querySelector('.countBtn').onclick=()=>{let n=parseInt(prompt(b.name+'の個数',b.count),10);if(n>=1&&n<=20){b.count=n;result=null;save();renderAll()}};box.appendChild(d)})}
+function stats(){let u=0,p=0;blocks.forEach(b=>{u+=b.shape.length*b.count;p+=b.count});$('used').textContent=u;$('empty').textContent=Math.max(0,49-u);$('pieces').textContent=p}
+function renderBoard(){let cells=[...$('board').children];cells.forEach((c,i)=>{let r=Math.floor(i/7),col=i%7;c.style.background='#f8fafc';c.textContent='';if(result&&result[r][col]>=0){let bi=result[r][col];c.style.background=COLORS[bi%COLORS.length];c.textContent=bi+1}});let l=$('legend');l.innerHTML=result?blocks.map((b,i)=>'<span class="legend-item"><span class="swatch" style="background:'+COLORS[i%COLORS.length]+'"></span>'+(i+1)+': '+b.name+'</span>').join(''):''}
+function renderAll(){renderEditor();renderList();renderBoard();stats()}
+function addBlock(name,shape,count){blocks.push({id:uid(),name,shape:norm(shape),count});save();renderAll()}
+function expand(){let p=[];blocks.forEach((b,i)=>{for(let n=0;n<b.count;n++)p.push({bi:i,shape:b.shape,vars:vars(b.shape)})});return p.sort((a,b)=>b.shape.length-a.shape.length)}
+function blank(){return Array.from({length:7},()=>Array(7).fill(-1))}
+function can(b,s,r,c){return s.every(([dr,dc])=>r+dr<7&&c+dc<7&&b[r+dr][c+dc]===-1)}
+function place(b,s,r,c,v){s.forEach(([dr,dc])=>b[r+dr][c+dc]=v)}
+function positions(maxR,maxC,sd){let a=[];for(let r=0;r<7-maxR;r++)for(let c=0;c<7-maxC;c++)a.push([r,c]);if(sd){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.abs(Math.sin((i+1)*(sd+13)))*100000)%(i+1);[a[i],a[j]]=[a[j],a[i]]}}return a}
+function solve(newSeed){if(!blocks.length){setStatus('先にブロックを登録してください。','error');return}seed=newSeed?seed+1:0;let total=blocks.reduce((s,b)=>s+b.shape.length*b.count,0);if(total>49){setStatus('合計'+total+'マスなので7×7には入りません。','error');return}let b=blank(),p=expand(),steps=0,max=500000;function bt(i){if(++steps>max)return false;if(i===p.length)return true;for(let v of p[i].vars){let mr=Math.max(...v.map(x=>x[0])),mc=Math.max(...v.map(x=>x[1]));for(let [r,c] of positions(mr,mc,seed+i)){if(can(b,v,r,c)){place(b,v,r,c,p[i].bi);if(bt(i+1))return true;place(b,v,r,c,-1)}}}return false}if(bt(0)){result=b;renderBoard();setStatus('配置できました！ 計算回数：'+steps.toLocaleString()+'回','success')}else{result=null;renderBoard();setStatus('配置できませんでした。回転・反転を変更して試してください。','error')}}
+function exportImage(){if(!result){setStatus('先に自動配置してください。','error');return}let cv=$('canvas'),x=cv.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,900,1000);x.fillStyle='#111827';x.font='bold 46px sans-serif';x.fillText('7×7 ブロック配置',70,75);let cs=100,g=8,sx=70,sy=120;for(let r=0;r<7;r++)for(let c=0;c<7;c++){let bi=result[r][c];x.fillStyle=bi>=0?COLORS[bi%COLORS.length]:'#f1f5f9';x.fillRect(sx+c*(cs+g),sy+r*(cs+g),cs,cs)}let a=document.createElement('a');a.href=cv.toDataURL('image/png');a.download='7x7_block_layout.png';a.click();setStatus('画像を作成しました。','success')}
+for(let i=0;i<25;i++){let b=document.createElement('button');b.className='edit-cell';b.onclick=()=>{edit[i]=!edit[i];renderEditor()};$('editor').appendChild(b)}for(let i=0;i<49;i++){let b=document.createElement('button');b.className='board-cell';$('board').appendChild(b)}
+$('clearShape').onclick=clearShape;$('add').onclick=()=>{let s=currentShape();if(!s.length){setStatus('形を1マス以上選んでください。','error');return}let name=$('name').value.trim()||'ブロック'+(blocks.length+1),count=Math.max(1,Math.min(20,parseInt($('count').value)||1));addBlock(name,s,count);$('name').value='';$('count').value=1;clearShape();setStatus(name+'を登録しました。','success')};$('samples').onclick=()=>{addBlock('L字',[[0,0],[1,0],[2,0],[2,1]],1);addBlock('T字',[[0,0],[0,1],[0,2],[1,1]],1);addBlock('四角',[[0,0],[0,1],[1,0],[1,1]],1);setStatus('サンプルを追加しました。','success')};$('clearAll').onclick=()=>{if(confirm('全部削除しますか？')){blocks=[];result=null;save();renderAll();setStatus('全部削除しました。')}};$('solve').onclick=()=>solve(false);$('again').onclick=()=>solve(true);$('clearBoard').onclick=()=>{result=null;renderBoard();setStatus('配置を消しました。')};$('image').onclick=exportImage;
+load();renderAll();
+})();
+</script>
+</body>
+</html>
