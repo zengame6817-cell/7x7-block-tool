@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>レリックグラス配置ツール</title>
+<title>レリックグラス配置ツール Ver.2.1</title>
 <style>
 :root{
   --bg:#f4f6f8;
@@ -229,6 +229,11 @@ summary{cursor:pointer;font-weight:700}
 
       <h3>配置結果</h3>
       <div id="resultBoard" class="grid7" aria-label="配置結果"></div>
+      <div class="toolbar" style="justify-content:center">
+        <button id="prevCandidate" class="btn secondary" disabled>◀ 前の候補</button>
+        <span id="candidateCounter" style="min-width:110px;text-align:center;font-weight:800">候補 0 / 0</span>
+        <button id="nextCandidate" class="btn secondary" disabled>次の候補 ▶</button>
+      </div>
       <div id="legend" class="legend"></div>
 
       <details>
@@ -256,7 +261,8 @@ const COLORS = [
 let board = Array(SIZE*SIZE).fill(false);
 let editor = Array(SIZE*SIZE).fill(false);
 let pieces = [];
-let result = null;
+let candidates = [];
+let candidateIndex = 0;
 let editingId = null;
 let activeTag = "すべて";
 
@@ -445,19 +451,19 @@ function renderPieces(){
 
     card.querySelector(".piece-check").addEventListener("change",e=>{
       piece.enabled=e.target.checked;
-      result=null; save(); renderAll();
+      clearCandidates(); save(); renderAll();
     });
 
     card.querySelector(".count-input").addEventListener("change",e=>{
       piece.count=Math.max(1,Math.min(99,Number(e.target.value)||1));
-      result=null; save(); renderAll();
+      clearCandidates(); save(); renderAll();
     });
 
     card.querySelector(".edit").addEventListener("click",()=>startEdit(id));
     card.querySelector(".delete").addEventListener("click",()=>{
       if(confirm(`「${piece.name}」を削除しますか？`)){
         pieces=pieces.filter(p=>p.id!==id);
-        result=null; save(); renderAll();
+        clearCandidates(); save(); renderAll();
       }
     });
   });
@@ -470,6 +476,31 @@ function renderStats(){
   $("selectedCells").textContent=selected.reduce((a,p)=>a+p.count*p.shape.length,0);
 }
 
+
+function clearCandidates(){
+  candidates=[];
+  candidateIndex=0;
+}
+
+function currentCandidate(){
+  return candidates.length ? candidates[candidateIndex] : null;
+}
+
+function updateCandidateControls(){
+  const total=candidates.length;
+  $("candidateCounter").textContent=`候補 ${total ? candidateIndex+1 : 0} / ${total}`;
+  $("prevCandidate").disabled=total<=1;
+  $("nextCandidate").disabled=total<=1;
+}
+
+function showCandidate(index){
+  if(!candidates.length) return;
+  candidateIndex=(index+candidates.length)%candidates.length;
+  renderResult();
+  $("solveStatus").className="status success";
+  $("solveStatus").textContent=`候補 ${candidateIndex+1} / ${candidates.length} を表示しています。`;
+}
+
 function renderResult(){
   const cells=[...$("resultBoard").children];
   cells.forEach((cell,i)=>{
@@ -479,6 +510,9 @@ function renderResult(){
     if(board[i]) cell.classList.add("active");
   });
   $("legend").innerHTML="";
+  updateCandidateControls();
+
+  const result=currentCandidate();
   if(!result) return;
 
   result.placements.forEach((pl,index)=>{
@@ -564,7 +598,7 @@ function registerOrUpdate(){
     pieces.push({id:uid(),name,count,tags,shape,enabled:true});
     setEditorStatus("ピースを登録しました。","success");
   }
-  result=null;
+  clearCandidates();
   save();
   const msg=$("editorStatus").textContent;
   clearEditorForm();
@@ -579,6 +613,7 @@ function expandedSelectedPieces(){
     for(let i=0;i<p.count;i++){
       expanded.push({
         sourceId:p.id,
+        instance:i,
         name:p.count>1?`${p.name} (${i+1}/${p.count})`:p.name,
         variants:vars,
         area:p.shape.length
@@ -622,31 +657,59 @@ function solve(){
   if(need>free){
     $("solveStatus").className="status error";
     $("solveStatus").textContent=`空きマスは${free}ですが、選択ピースには${need}マス必要です。`;
-    result=null;renderResult();return;
+    clearCandidates();renderResult();return;
   }
 
   $("solve").disabled=true;
   $("solveStatus").className="status";
-  $("solveStatus").textContent="配置を探索しています…";
+  $("solveStatus").textContent="別候補も含めて配置を探索しています…";
 
   setTimeout(()=>{
     const occupied=board.slice();
     const placements=[];
+    const found=[];
+    const solutionKeys=new Set();
     let nodes=0;
-    const NODE_LIMIT=1200000;
+    const NODE_LIMIT=1800000;
+    const MAX_SOLUTIONS=100;
     const start=performance.now();
+
+    function solutionKey(items){
+      return items.map(pl=>{
+        const cells=pl.cells
+          .map(([r,c])=>r*SIZE+c)
+          .sort((a,b)=>a-b)
+          .join(".");
+        return `${pl.sourceId}:${pl.instance}:${cells}`;
+      }).sort().join("|");
+    }
 
     function backtrack(remaining){
       nodes++;
-      if(nodes>NODE_LIMIT) return false;
-      if(!remaining.length) return true;
+      if(nodes>NODE_LIMIT || found.length>=MAX_SOLUTIONS) return;
+
+      if(!remaining.length){
+        const snapshot=placements.map(pl=>({
+          sourceId:pl.sourceId,
+          instance:pl.instance,
+          name:pl.name,
+          cells:pl.cells.map(v=>v.slice())
+        }));
+        const key=solutionKey(snapshot);
+        if(!solutionKeys.has(key)){
+          solutionKeys.add(key);
+          found.push({placements:snapshot});
+        }
+        return;
+      }
 
       let bestIndex=-1,bestOptions=null;
       for(let i=0;i<remaining.length;i++){
         const opts=possiblePlacements(remaining[i],occupied);
-        if(opts.length===0) return false;
+        if(opts.length===0) return;
         if(bestOptions===null || opts.length<bestOptions.length){
-          bestIndex=i;bestOptions=opts;
+          bestIndex=i;
+          bestOptions=opts;
           if(opts.length===1) break;
         }
       }
@@ -662,35 +725,46 @@ function solve(){
 
       for(const cells of bestOptions){
         cells.forEach(([r,c])=>occupied[r*SIZE+c]=true);
-        placements.push({name:piece.name,cells});
-        if(backtrack(next)) return true;
+        placements.push({
+          sourceId:piece.sourceId,
+          instance:piece.instance,
+          name:piece.name,
+          cells
+        });
+
+        backtrack(next);
+
         placements.pop();
         cells.forEach(([r,c])=>occupied[r*SIZE+c]=false);
+
+        if(nodes>NODE_LIMIT || found.length>=MAX_SOLUTIONS) return;
       }
-      return false;
     }
 
-    const ok=backtrack(selected);
+    backtrack(selected);
     const elapsed=((performance.now()-start)/1000).toFixed(2);
+    candidates=found;
+    candidateIndex=0;
 
-    if(ok){
-      result={placements:placements.slice()};
+    if(candidates.length){
       $("solveStatus").className="status success";
-      $("solveStatus").textContent=`配置できました。探索 ${nodes.toLocaleString()}回／${elapsed}秒`;
+      const limitText=candidates.length>=MAX_SOLUTIONS ? "（最大100件）" : "";
+      $("solveStatus").textContent=
+        `${candidates.length}通り見つかりました${limitText}。候補 1 を表示しています。探索 ${nodes.toLocaleString()}回／${elapsed}秒`;
     }else{
-      result=null;
       $("solveStatus").className="status error";
       $("solveStatus").textContent=nodes>NODE_LIMIT
         ?`探索回数が上限に達しました。ピース数を減らすか、盤面条件を見直してください。`
         :`回転・反転をすべて試しましたが、この条件では全ピースを配置できませんでした。`;
     }
+
     $("solve").disabled=false;
     renderResult();
   },30);
 }
 
 createGrid($("boardEditor"),i=>{
-  board[i]=!board[i];result=null;save();renderAll();
+  board[i]=!board[i];clearCandidates();save();renderAll();
 });
 createGrid($("pieceEditor"),i=>{
   editor[i]=!editor[i];renderPieceEditor();
@@ -698,10 +772,10 @@ createGrid($("pieceEditor"),i=>{
 createGrid($("resultBoard"),()=>{});
 
 $("clearBoard").addEventListener("click",()=>{
-  board.fill(false);result=null;save();renderAll();
+  board.fill(false);clearCandidates();save();renderAll();
 });
 $("invertBoard").addEventListener("click",()=>{
-  board=board.map(v=>!v);result=null;save();renderAll();
+  board=board.map(v=>!v);clearCandidates();save();renderAll();
 });
 $("clearPieceEditor").addEventListener("click",()=>{
   editor.fill(false);renderPieceEditor();
@@ -709,19 +783,26 @@ $("clearPieceEditor").addEventListener("click",()=>{
 $("registerPiece").addEventListener("click",registerOrUpdate);
 $("cancelEdit").addEventListener("click",clearEditorForm);
 $("selectAll").addEventListener("click",()=>{
-  pieces.forEach(p=>p.enabled=true);result=null;save();renderAll();
+  pieces.forEach(p=>p.enabled=true);clearCandidates();save();renderAll();
 });
 $("clearSelection").addEventListener("click",()=>{
-  pieces.forEach(p=>p.enabled=false);result=null;save();renderAll();
+  pieces.forEach(p=>p.enabled=false);clearCandidates();save();renderAll();
 });
 $("deleteAll").addEventListener("click",()=>{
   if(pieces.length && confirm("登録したピースをすべて削除しますか？")){
-    pieces=[];result=null;activeTag="すべて";save();clearEditorForm();renderAll();
+    pieces=[];clearCandidates();activeTag="すべて";save();clearEditorForm();renderAll();
   }
+});
+$("prevCandidate").addEventListener("click",()=>{
+  showCandidate(candidateIndex-1);
+});
+$("nextCandidate").addEventListener("click",()=>{
+  showCandidate(candidateIndex+1);
 });
 $("solve").addEventListener("click",solve);
 $("resetResult").addEventListener("click",()=>{
-  result=null;renderResult();
+  clearCandidates();
+  renderResult();
   $("solveStatus").className="status";
   $("solveStatus").textContent="配置結果を消しました。";
 });
