@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>レリックグラス配置ツール Ver.2.1</title>
+<title>レリックグラス配置ツール Ver.2.2</title>
 <script type="text/javascript">
 (function(c,l,a,r,i,t,y){
     c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
@@ -164,7 +164,7 @@ summary{cursor:pointer;font-weight:700}
   <header>
     <div>
       <h1>レリックグラス配置ツール</h1>
-      <div class="subtitle">ピースの向きは登録時に気にしなくてOK。回転・反転を自動で全探索します。</div>
+      <div class="subtitle">ピースの向きは登録時に気にしなくてOK。回転のみ自動で全探索します。</div>
     </div>
   </header>
 
@@ -356,11 +356,6 @@ function rotate(shape){
   return normalize(shape.map(([r,c])=>[c,maxR-r]));
 }
 
-function flip(shape){
-  const maxC=Math.max(...shape.map(v=>v[1]));
-  return normalize(shape.map(([r,c])=>[r,maxC-c]));
-}
-
 function shapeKey(shape){
   return normalize(shape).map(v=>v.join(",")).join(";");
 }
@@ -369,13 +364,10 @@ function variants(shape){
   const list=[],seen=new Set();
   let cur=normalize(shape);
   for(let i=0;i<4;i++){
-    const candidates=[cur,flip(cur)];
-    for(const candidate of candidates){
-      const key=shapeKey(candidate);
-      if(!seen.has(key)){
-        seen.add(key);
-        list.push(candidate);
-      }
+    const key=shapeKey(cur);
+    if(!seen.has(key)){
+      seen.add(key);
+      list.push(cur);
     }
     cur=rotate(cur);
   }
@@ -762,7 +754,7 @@ function solve(){
       $("solveStatus").className="status error";
       $("solveStatus").textContent=nodes>NODE_LIMIT
         ?`探索回数が上限に達しました。ピース数を減らすか、盤面条件を見直してください。`
-        :`回転・反転をすべて試しましたが、この条件では全ピースを配置できませんでした。`;
+        :`回転をすべて試しましたが、この条件では全ピースを配置できませんでした。`;
     }
 
     $("solve").disabled=false;
