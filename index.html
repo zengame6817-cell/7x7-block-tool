@@ -572,7 +572,11 @@ async function loadSharedPresets(){
       id:String(p.id||""),
       name:String(p.name||"名称なし"),
       tags:Array.isArray(p.tags)?p.tags.map(String):[],
-      shape:normalize(Array.isArray(p.shape)?p.shape:[])
+    shape:normalize(
+      Array.isArray(p.shape)
+        ? p.shape.map(([x,y]) => [y,x])
+        : []
+    )
     })).filter(p=>p.id&&p.shape.length);
     sharedLoaded=true;
     setStatus("sharedStatus",`${sharedPresets.length}件の共通プリセットを最新状態に更新しました。`,"success");
@@ -642,9 +646,14 @@ async function publishCurrentPreset(){
   $("publishPreset").disabled=true;
   setStatus("adminStatus","共通プリセットへ登録しています…","");
   try{
-    const params=new URLSearchParams({
-      action:"add",name,tags:tags.join(","),shape:JSON.stringify(shape)
-    });
+const params = new URLSearchParams({
+  action: "add",
+  name,
+  tags: tags.join(","),
+  shape: JSON.stringify(
+    shape.map(([r, c]) => [c, r])
+  )
+});
     await postPreset(params);
     localStorage.setItem(ADMIN_KEY_STORAGE,getAdminKey());
     setStatus("adminStatus",`「${name}」を共通プリセットへ登録しました。`,"success");
