@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>レリックグラス配置ツール Ver.2.4</title>
+<title>レリックグラス配置ツール Ver.2.5</title>
 <script type="text/javascript">
 (function(c,l,a,r,i,t,y){
     c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
@@ -236,6 +236,7 @@ summary{cursor:pointer;font-weight:700}
         </div>
         <div class="toolbar">
           <button id="publishPreset" class="btn" type="button">共通プリセットへ登録</button>
+          <button id="cancelSharedEdit" class="btn secondary" type="button" style="display:none">共通編集を中止</button>
         </div>
         <div id="adminStatus" class="status" style="display:none"></div>
       </div>
@@ -260,9 +261,9 @@ summary{cursor:pointer;font-weight:700}
                 <option value="すべて">すべてのタグ</option>
               </select>
             </div>
-            <button id="refreshPresets" class="btn secondary small" type="button">↻ 最新に更新</button>
+            <button id="refreshPresets" class="btn secondary small" type="button">📥 プリセットを読み込み</button>
           </div>
-          <div id="sharedStatus" class="status">「最新に更新」を押すと共通プリセットを取得します。</div>
+          <div id="sharedStatus" class="status">「プリセットを読み込み」を押すと共通プリセットを取得します。</div>
           <div id="sharedSummary" class="shared-summary"></div>
           <div id="sharedPresetList" class="shared-list"></div>
         </div>
@@ -345,6 +346,7 @@ let sharedLoaded = false;
 let sharedOpen = false;
 let sharedSearch = "";
 let sharedTag = "すべて";
+let sharedEditingId = null;
 
 const $ = id => document.getElementById(id);
 
@@ -545,7 +547,7 @@ function renderSharedPresets(){
         </div>
         <div class="piece-actions">
           <button class="btn ${already?"secondary":"success"} small add-shared" type="button" ${already?"disabled":""}>${already?"✓ 追加済み":"自分に追加"}</button>
-          ${IS_ADMIN?'<button class="btn danger small delete-shared" type="button">非公開</button>':""}
+          ${IS_ADMIN?'<button class="btn secondary small edit-shared" type="button">編集</button><button class="btn danger small delete-shared" type="button">非公開</button>':""}
         </div>
       </div>`;
   }).join("");
@@ -554,6 +556,8 @@ function renderSharedPresets(){
     const preset=sharedPresets.find(p=>p.id===card.dataset.id);
     const add=card.querySelector(".add-shared");
     if(add&&!add.disabled) add.addEventListener("click",()=>addSharedToLocal(preset));
+    const edit=card.querySelector(".edit-shared");
+    if(edit) edit.addEventListener("click",()=>startSharedEdit(preset));
     const del=card.querySelector(".delete-shared");
     if(del) del.addEventListener("click",()=>deleteSharedPreset(preset));
   });
@@ -572,11 +576,11 @@ async function loadSharedPresets(){
       id:String(p.id||""),
       name:String(p.name||"名称なし"),
       tags:Array.isArray(p.tags)?p.tags.map(String):[],
-    shape:normalize(
-      Array.isArray(p.shape)
-        ? p.shape.map(([x,y]) => [y,x])
-        : []
-    )
+      shape:normalize(
+        Array.isArray(p.shape)
+          ? p.shape.map(([x,y])=>[y,x])
+          : []
+      )
     })).filter(p=>p.id&&p.shape.length);
     sharedLoaded=true;
     setStatus("sharedStatus",`${sharedPresets.length}件の共通プリセットを最新状態に更新しました。`,"success");
@@ -603,6 +607,36 @@ function addSharedToLocal(preset){
     setStatus("sharedStatus",`「${preset.name}」を自分の一覧へ追加しました。`,"success");
   }
   clearCandidates();save();renderAll();renderSharedPresets();
+}
+
+function setSharedEditMode(preset){
+  sharedEditingId=preset?preset.id:null;
+  $("publishPreset").textContent=preset?"共通プリセットを更新":"共通プリセットへ登録";
+  $("cancelSharedEdit").style.display=preset?"":"none";
+}
+
+function startSharedEdit(preset){
+  if(!preset) return;
+  editingId=null;
+  editor.fill(false);
+  preset.shape.forEach(([r,c])=>{
+    if(r>=0&&r<SIZE&&c>=0&&c<SIZE) editor[r*SIZE+c]=true;
+  });
+  $("pieceName").value=preset.name;
+  $("pieceCount").value="1";
+  $("pieceTags").value=preset.tags.join(", ");
+  $("registerPiece").textContent="ピースを登録";
+  $("cancelEdit").style.display="none";
+  setSharedEditMode(preset);
+  setStatus("adminStatus",`共通プリセット「${preset.name}」を編集中です。形状・名前・タグを変更して更新してください。`,"");
+  renderPieceEditor();
+  window.scrollTo({top:document.querySelector("#pieceName").getBoundingClientRect().top+window.scrollY-20,behavior:"smooth"});
+}
+
+function cancelSharedEdit(){
+  setSharedEditMode(null);
+  clearEditorForm();
+  setStatus("adminStatus","共通プリセットの編集を中止しました。","");
 }
 
 function getAdminKey(){
@@ -640,29 +674,51 @@ async function publishCurrentPreset(){
   const shape=shapeFromEditor();
   if(!name){setStatus("adminStatus","ピース名を入力してください。","error");return;}
   if(!shape.length){setStatus("adminStatus","ピースの形を1マス以上入力してください。","error");return;}
-  if(sharedPresets.some(p=>p.name===name&&shapeKey(p.shape)===shapeKey(shape)) &&
-     !confirm("同じ名前・形状の共通プリセットがあります。それでも登録しますか？")) return;
+
+  const duplicate=sharedPresets.some(p=>p.id!==sharedEditingId&&p.name===name&&shapeKey(p.shape)===shapeKey(shape));
+  if(duplicate&&!confirm("同じ名前・形状の共通プリセットがあります。それでも登録しますか？")) return;
 
   $("publishPreset").disabled=true;
-  setStatus("adminStatus","共通プリセットへ登録しています…","");
+  $("cancelSharedEdit").disabled=true;
+  setStatus("adminStatus",sharedEditingId?"共通プリセットを更新しています…":"共通プリセットへ登録しています…","");
+
   try{
-const params = new URLSearchParams({
-  action: "add",
-  name,
-  tags: tags.join(","),
-  shape: JSON.stringify(
-    shape.map(([r, c]) => [c, r])
-  )
-});
+    const params=new URLSearchParams({
+      action:sharedEditingId?"update":"add",
+      name,
+      tags:tags.join(","),
+      shape:JSON.stringify(shape.map(([r,c])=>[c,r]))
+    });
+    if(sharedEditingId) params.set("id",sharedEditingId);
+
+    const editingSharedId=sharedEditingId;
     await postPreset(params);
+
+    if(editingSharedId){
+      pieces.forEach(local=>{
+        if(local.sharedId===editingSharedId){
+          local.name=name;
+          local.tags=[...tags];
+          local.shape=shape.map(v=>v.slice());
+        }
+      });
+      save();
+      setStatus("adminStatus",`「${name}」の共通プリセットを更新しました。`,"success");
+      setSharedEditMode(null);
+      clearEditorForm();
+    }else{
+      setStatus("adminStatus",`「${name}」を共通プリセットへ登録しました。`,"success");
+    }
+
     localStorage.setItem(ADMIN_KEY_STORAGE,getAdminKey());
-    setStatus("adminStatus",`「${name}」を共通プリセットへ登録しました。`,"success");
     await loadSharedPresets();
+    renderAll();
   }catch(error){
     console.error(error);
-    setStatus("adminStatus",error.message||"登録に失敗しました。","error");
+    setStatus("adminStatus",error.message||"登録・更新に失敗しました。","error");
   }finally{
     $("publishPreset").disabled=false;
+    $("cancelSharedEdit").disabled=false;
   }
 }
 
@@ -1107,6 +1163,7 @@ $("sharedTagFilter").addEventListener("change",e=>{
 });
 $("saveAdminKey").addEventListener("click",saveAdminKey);
 $("publishPreset").addEventListener("click",publishCurrentPreset);
+$("cancelSharedEdit").addEventListener("click",cancelSharedEdit);
 
 load();
 setupAdminMode();
